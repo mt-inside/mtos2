@@ -1,10 +1,16 @@
-use linked_list_allocator::LockedHeap;
+pub mod bump;
+pub mod linked_list;
+pub mod fixed_size_block;
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
 
+//use bump::BumpAllocator;
+//use linked_list::LinkedListAllocator;
+use fixed_size_block::FixedSizeBlockAllocator;
+
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
 use x86_64::{
     structures::paging::{
@@ -12,6 +18,31 @@ use x86_64::{
     },
     VirtAddr,
 };
+
+
+// Requires `align` to be a power of two. This is guaranteed by the GlobalAlloc trait.
+fn align_up(addr: usize, align: usize) -> usize {
+    (addr + align - 1) & !(align - 1)
+}
+
+
+// totally generic wrapper, cause you can't impl a trait for an arbitrary type (spin::Mutex<A>) from outside your crate.
+pub struct Locked<A> {
+    inner: spin::Mutex<A>,
+}
+
+impl<A> Locked<A> {
+    pub const fn new(inner: A) -> Self {
+        Locked {
+            inner: spin::Mutex::new(inner),
+        }
+    }
+
+    pub fn lock(&self) -> spin::MutexGuard<A> {
+        self.inner.lock()
+    }
+}
+
 
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,
